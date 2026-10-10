@@ -46,7 +46,13 @@ h2 em{color:var(--gold-2)}
 p{margin:0}
 .eb{font-size:11px;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--gold)}
 .lineset .l{display:block;overflow:hidden;padding-bottom:.08em;margin-bottom:-.08em}
-.lineset .l>span{display:block;will-change:transform}
+.lineset .l>span{display:block;will-change:transform;-webkit-backface-visibility:hidden;backface-visibility:hidden}
+@media (hover:none){
+  .hd.scrolled{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(15,21,48,.94)}
+  .form{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(8,9,26,.82)}
+  .fab-menu a{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(15,21,48,.96)}
+  .scene .cap,.bleed img,.xf .im img,.hero .poster{-webkit-backface-visibility:hidden;backface-visibility:hidden}
+}
 .ul{position:relative;display:inline-block;padding-bottom:5px}
 .ul::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:currentColor;transform:scaleX(0);transform-origin:center;transition:transform .5s var(--ease)}
 .ul:hover::after,.ul:focus-visible::after{transform:scaleX(1)}
@@ -160,8 +166,8 @@ p{margin:0}
 .scene .stage{position:absolute;right:var(--gut);top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:14px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(244,241,234,.4)}
 .scene .stage span{transition:color .5s}.scene .stage span.on{color:var(--gold-2)}
 @media(max-width:860px){.scene .stage{display:none}.scene .cap{max-width:10ch}}
-.spacer{height:440vh}
-@media(max-width:860px){.spacer{height:340vh}}
+.spacer{height:440vh;height:440svh}
+@media(max-width:860px){.spacer{height:340vh;height:340svh}}
 
 /* CHAPTERS (light) */
 .chapters{position:relative;z-index:2;background:radial-gradient(80% 50% at 85% 10%,rgba(216,176,72,.08),transparent 60%),radial-gradient(70% 40% at 0% 60%,rgba(40,56,120,.35),transparent 70%),var(--bg);box-shadow:0 -40px 80px rgba(8,9,26,.35)}
@@ -670,7 +676,7 @@ p{margin:0}
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var hasGsap = typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined';
   var mobile = window.matchMedia('(max-width: 860px)').matches;
-  if (hasGsap) gsap.registerPlugin(ScrollTrigger);
+  if (hasGsap) { gsap.registerPlugin(ScrollTrigger); ScrollTrigger.config({ ignoreMobileResize: true }); }
 
   /* procedural WebGL tower — no external model or subscription required */
   function initArchitecture3D(){
@@ -934,7 +940,7 @@ p{margin:0}
     var mob=window.matchMedia('(max-width:760px)').matches&&+cv.getAttribute('data-frames-m');
     if(mob) N=+cv.getAttribute('data-frames-m');
     var dir=cv.getAttribute(mob?'data-dir-m':'data-dir'), ctx=cv.getContext('2d',{alpha:false}), host=document.getElementById('scene');
-    var blobs=new Array(N), bmps=new Array(N), pending={}, cur=-1, want=0, AHEAD=mob?10:16, BEHIND=mob?6:10, KEEP=mob?12:8;
+    var blobs=new Array(N), bmps=new Array(N), pending={}, cur=-1, want=0, AHEAD=mob?14:16, BEHIND=mob?8:10, KEEP=mob?12:8, lastW=0, lastH=0;
     var hasBmp=typeof createImageBitmap==='function', ext='webp';
     function src(i){ return dir+'f'+String(i+1).padStart(3,'0')+'.'+ext; }
     function fetchFrame(i,cb){ if(blobs[i]){ if(cb) cb(); return; }
@@ -946,9 +952,12 @@ p{margin:0}
       for(var k=0;k<=AHEAD;k++){ if(i+k<N) decode(i+k); if(k<=BEHIND&&i-k>=0) decode(i-k); }
       for(var j=0;j<N;j++){ if(bmps[j]&&j%KEEP!==0&&(j<i-BEHIND-6||j>i+AHEAD+6)){ if(bmps[j].close) bmps[j].close(); bmps[j]=null; } }
     }
-    function near(i){ for(var k=0;k<N;k++){ if(bmps[i-k]) return bmps[i-k]; if(bmps[i+k]) return bmps[i+k]; } return null; }
-    function size(){ var d=Math.min(window.devicePixelRatio||1,1.5); cv.width=Math.round(cv.clientWidth*d); cv.height=Math.round(cv.clientHeight*d); cur=-1; draw(want); }
-    function draw(i){ want=i; ensure(i); if(i===cur) return; var im=near(i); if(!im) return; cur=i;
+    function near(i,maxK){ var K=maxK==null?N:maxK; for(var k=0;k<=K;k++){ if(bmps[i-k]) return bmps[i-k]; if(bmps[i+k]) return bmps[i+k]; } return null; }
+    function size(force){ var d=Math.min(window.devicePixelRatio||1,1.5), W=Math.round(cv.clientWidth*d), H=Math.round(cv.clientHeight*d);
+      // iOS: скрытие адресной строки меняет высоту на ~10% — не пересоздаём canvas (это даёт вспышку), пока ширина та же
+      if(!force && W===lastW && Math.abs(H-lastH)<lastH*.22) return;
+      lastW=W; lastH=H; cv.width=W; cv.height=H; cur=-1; draw(want); }
+    function draw(i){ want=i; ensure(i); if(i===cur) return; var im=near(i, cur<0?N:2); if(!im) return; cur=i;
       var iw=im.width||im.naturalWidth, ih=im.height||im.naturalHeight;
       var W=cv.width,H=cv.height,r=Math.max(W/iw,H/ih),w=iw*r,h=ih*r;
       var fx=(W/H<1.1)?.6:.5; var dx=Math.max(W-w,Math.min(0,W/2-w*fx));
@@ -957,10 +966,11 @@ p{margin:0}
     var q=0; function pump(){ for(var n=0;n<4&&q<order.length;n++,q++){ fetchFrame(order[q]); } if(q<order.length) setTimeout(pump,60); }
     function begin(){ if(document.readyState==='complete') pump(); else window.addEventListener('load',function(){ setTimeout(pump,300); }); }
     // AVIF (≈40% smaller than WebP) when the browser can decode it, otherwise WebP
-    (function(){ var im=new Image(); var done=function(ok){ ext=ok?'avif':'webp'; fetchFrame(0,function(){ decode(0); host.classList.add('seq-ready'); size(); }); begin(); };
+    (function(){ var im=new Image(); var done=function(ok){ ext=ok?'avif':'webp'; fetchFrame(0,function(){ decode(0); host.classList.add('seq-ready'); size(true); }); begin(); };
       im.onload=function(){ done(im.width>0); }; im.onerror=function(){ done(false); };
       im.src='data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAAB0AAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQ0MAAAAABNjb2xybmNseAACAAIAAgAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAACVtZGF0EgAKCBgANogQEAwgMg8f8D///8WfhwB8+ErK42A='; })();
-    window.addEventListener('resize',size,{passive:true});
+    window.addEventListener('resize',function(){ size(false); },{passive:true});
+    window.addEventListener('orientationchange',function(){ setTimeout(function(){ size(true); },350); });
     cv.setAttribute('data-ok','1');
     return { set:function(t){ draw(Math.round(Math.max(0,Math.min(1,t))*(N-1))); } };
   })();
