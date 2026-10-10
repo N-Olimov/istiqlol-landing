@@ -931,7 +931,7 @@ p{margin:0}
       v.addEventListener('error',function(){ if(!tried){ tried=true; play(src.replace(/\.mp4$/,'.webm')); } });   // браузер без H.264 → WebM
       play(src); }
     v.addEventListener('playing',function(){ v.classList.add('on'); },{once:true});
-    if(document.readyState==='complete') setTimeout(start,200); else window.addEventListener('load',function(){ setTimeout(start,200); });
+    if(document.readyState==='complete') setTimeout(start,2500); else window.addEventListener('load',function(){ setTimeout(start,2500); });
   })();
 
   /* ===== build sequence: video frames scrubbed by scroll =====
@@ -948,32 +948,41 @@ p{margin:0}
     function framesImpl(){
       var dir=cv.getAttribute(mob?'data-dir-m':'data-dir'), ctx=cv.getContext('2d',{alpha:false});
     var blobs=new Array(N), bmps=new Array(N), pending={}, cur=-1, want=0, AHEAD=mob?14:16, BEHIND=mob?8:10, KEEP=mob?12:8, lastW=0, lastH=0;
-    var hasBmp=typeof createImageBitmap==='function', ext='webp';
+    var hasBmp=typeof createImageBitmap==='function', ext='webp', isFile=location.protocol==='file:';
     function src(i){ return dir+'f'+String(i+1).padStart(3,'0')+'.'+ext; }
+    // получаем кадр: обычно fetch → blob; на file:// (открыли index.html с диска) fetch запрещён — берём через <img>
     function fetchFrame(i,cb){ if(blobs[i]){ if(cb) cb(); return; }
-      fetch(src(i)).then(function(r){ return r.blob(); }).then(function(bl){ blobs[i]=bl; if(cb) cb(); ensure(want); }).catch(function(){}); }
+      var viaImg=function(){ var im=new Image(); im.decoding='async'; im.onload=function(){ blobs[i]=im; if(cb) cb(); ensure(want); }; im.src=src(i); };
+      if(isFile) return viaImg();
+      fetch(src(i)).then(function(r){ if(!r.ok) throw 0; return r.blob(); }).then(function(bl){ blobs[i]=bl; if(cb) cb(); ensure(want); }).catch(viaImg); }
     function decode(i){ if(bmps[i]||pending[i]||!blobs[i]) return; pending[i]=1;
-      var pr=hasBmp?createImageBitmap(blobs[i]):new Promise(function(res,rej){ var im=new Image(); im.onload=function(){ res(im); }; im.onerror=rej; im.src=URL.createObjectURL(blobs[i]); });
-      pr.then(function(bm){ bmps[i]=bm; delete pending[i]; if(Math.abs(i-want)<=2){ cur=-1; draw(want); } },function(){ delete pending[i]; }); }
+      var srcObj=blobs[i], pr;
+      if(hasBmp) pr=createImageBitmap(srcObj);
+      else if(srcObj instanceof Image) pr=Promise.resolve(srcObj);
+      else pr=new Promise(function(res,rej){ var im=new Image(); im.onload=function(){ res(im); }; im.onerror=rej; im.src=URL.createObjectURL(srcObj); });
+      pr.then(function(bm){ bmps[i]=bm; delete pending[i]; if(Math.abs(i-want)<Math.abs(cur-want)||cur<0) draw(want); },function(){ delete pending[i]; if(srcObj instanceof Image){ bmps[i]=srcObj; draw(want); } }); }
     function ensure(i){
       for(var k=0;k<=AHEAD;k++){ if(i+k<N) decode(i+k); if(k<=BEHIND&&i-k>=0) decode(i-k); }
       for(var j=0;j<N;j++){ if(bmps[j]&&j%KEEP!==0&&(j<i-BEHIND-6||j>i+AHEAD+6)){ if(bmps[j].close) bmps[j].close(); bmps[j]=null; } }
     }
-    function near(i,maxK){ var K=maxK==null?N:maxK; for(var k=0;k<=K;k++){ if(bmps[i-k]) return bmps[i-k]; if(bmps[i+k]) return bmps[i+k]; } return null; }
+    // ближайший декодированный кадр (индекс) к i
+    function nearIdx(i){ for(var k=0;k<N;k++){ if(bmps[i-k]) return i-k; if(bmps[i+k]) return i+k; } return -1; }
     function size(force){ var d=Math.min(window.devicePixelRatio||1,1.5), W=Math.round(cv.clientWidth*d), H=Math.round(cv.clientHeight*d);
       // iOS: скрытие адресной строки меняет высоту на ~10% — не пересоздаём canvas (это даёт вспышку), пока ширина та же
       if(!force && W===lastW && Math.abs(H-lastH)<lastH*.22) return;
       lastW=W; lastH=H; cv.width=W; cv.height=H; cur=-1; draw(want); }
-    function draw(i){ want=i; ensure(i); if(i===cur) return; var im=near(i, cur<0?N:2); if(!im) return; cur=i;
+    // прогрессивно: показываем ближайший готовый кадр, но никогда не меняем картинку на более далёкую от нужной
+    function draw(i){ want=i; ensure(i); var j=nearIdx(i); if(j<0) return;
+      if(j===cur) return; if(cur>=0 && Math.abs(j-i)>=Math.abs(cur-i)) return;
+      var im=bmps[j]; cur=j;
       var iw=im.width||im.naturalWidth, ih=im.height||im.naturalHeight;
       var W=cv.width,H=cv.height,r=Math.max(W/iw,H/ih),w=iw*r,h=ih*r;
       var fx=(W/H<1.1)?.6:.5; var dx=Math.max(W-w,Math.min(0,W/2-w*fx));
       ctx.drawImage(im,dx,(H-h)/2,w,h); }
     var order=[]; for(var st=8;st>=1;st=st>>1) for(var i=0;i<N;i+=st) if(order.indexOf(i)<0) order.push(i);
-    var q=0; function pump(){ for(var n=0;n<4&&q<order.length;n++,q++){ fetchFrame(order[q]); } if(q<order.length) setTimeout(pump,60); }
-    function begin(){ if(document.readyState==='complete') pump(); else window.addEventListener('load',function(){ setTimeout(pump,300); }); }
-    // AVIF (≈40% smaller than WebP) when the browser can decode it, otherwise WebP
-    (function(){ var im=new Image(); var done=function(ok){ ext=ok?'avif':'webp'; fetchFrame(0,function(){ decode(0); host.classList.add('seq-ready'); size(true); }); begin(); };
+    var q=0; function pump(){ for(var n=0;n<8&&q<order.length;n++,q++){ fetchFrame(order[q]); } if(q<order.length) setTimeout(pump,80); }
+    // AVIF (≈40% меньше WebP), если браузер умеет; стартуем сразу — кадры важнее остального
+    (function(){ var im=new Image(); var done=function(ok){ ext=ok?'avif':'webp'; fetchFrame(0,function(){ decode(0); host.classList.add('seq-ready'); size(true); }); pump(); };
       im.onload=function(){ done(im.width>0); }; im.onerror=function(){ done(false); };
       im.src='data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAAB0AAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQ0MAAAAABNjb2xybmNseAACAAIAAgAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAACVtZGF0EgAKCBgANogQEAwgMg8f8D///8WfhwB8+ErK42A='; })();
     window.addEventListener('resize',function(){ size(false); },{passive:true});
