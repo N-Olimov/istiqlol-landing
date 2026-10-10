@@ -69,6 +69,8 @@ p{margin:0}
 .fab-menu a{display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:999px;background:rgba(15,21,48,.92);color:var(--cream);font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;border:1px solid rgba(216,176,72,.28);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);white-space:nowrap}
 .fab-menu a:hover{border-color:var(--gold-2);color:var(--gold-2)}
 .fab-menu a i{width:8px;height:8px;border-radius:50%;background:var(--gold-2)}
+.veil{position:fixed;inset:0;z-index:70;background:var(--navy-3);opacity:0;pointer-events:none;transition:opacity .26s ease}
+.veil.on{opacity:1;pointer-events:auto;transition:opacity .22s ease}
 .cur{position:fixed;left:0;top:0;width:8px;height:8px;border-radius:50%;background:var(--gold-2);pointer-events:none;z-index:60;transform:translate(-50%,-50%);transition:width .3s,height .3s,opacity .3s;opacity:0}
 .cur.on{opacity:1}.cur.big{width:56px;height:56px;background:rgba(216,176,72,.35)}
 @media(pointer:coarse){.cur{display:none}}
@@ -843,9 +845,21 @@ p{margin:0}
     gsap.ticker.add(function(t){ lenis.raf(t * 1000); });
     gsap.ticker.lagSmoothing(0);
   }
+  /* переход по якорю: короткое затемнение → мгновенный прыжок → проявление.
+     Плавная прокрутка через все закреплённые сцены на 30 000px — это секунды тяжёлых анимаций и рывки. */
+  var veil = document.createElement('div'); veil.className='veil'; veil.setAttribute('aria-hidden','true'); document.body.appendChild(veil);
+  var going = false;
   function go(target){
-    var el = document.querySelector(target); if(!el) return;
-    if (lenis) lenis.scrollTo(el, { offset: 0, duration: 1.6 }); else el.scrollIntoView({behavior: reduce ? 'auto' : 'smooth'});
+    var el = document.querySelector(target); if(!el || going) return;
+    var near = Math.abs(el.getBoundingClientRect().top) < window.innerHeight * 1.5;
+    if (near || reduce) { if (lenis) lenis.scrollTo(el, { offset: 0, duration: reduce ? 0 : 0.9 }); else el.scrollIntoView({behavior: reduce ? 'auto' : 'smooth'}); return; }
+    going = true; veil.classList.add('on');
+    setTimeout(function(){
+      if (lenis) lenis.scrollTo(el, { offset: 0, immediate: true, force: true }); else el.scrollIntoView();
+      window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY);
+      if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.update();
+      setTimeout(function(){ veil.classList.remove('on'); going = false; }, 140);
+    }, 260);
   }
   document.querySelectorAll('a[href^="#"]').forEach(function(a){
     a.addEventListener('click', function(e){ var h=a.getAttribute('href'); if(h.length>1){ e.preventDefault(); closeMenu(); go(h);} });
