@@ -1007,7 +1007,7 @@ p{margin:0}
     window.addEventListener('resize',function(){ size(false); },{passive:true});
     window.addEventListener('orientationchange',function(){ setTimeout(function(){ size(true); },350); });
     cv.setAttribute('data-ok','1');
-      return { set:function(t){ draw(Math.round(Math.max(0,Math.min(1,t))*(N-1))); } };
+      return { set:function(t){ draw(Math.round(Math.max(0,Math.min(1,t))*(N-1))); }, warm:function(){ ensure(0); } };
     }
 
     /* --- вариант Б: видео с короткими GOP, перемотка по скроллу (телефоны: аппаратный декодер H.264) --- */
@@ -1038,9 +1038,16 @@ p{margin:0}
     }
 
     impl = useVideo ? videoImpl() : framesImpl();
+    // прогрев: за экран до сцены начинаем декодировать первые кадры, чтобы вход в сцену не дёргался
+    if('IntersectionObserver' in window){ var io=new IntersectionObserver(function(en){ if(en[0].isIntersecting){ if(impl.warm) impl.warm(); io.disconnect(); } },{rootMargin:'120% 0px'}); io.observe(host); }
     return { set:function(t){ impl.set(t); } };
   })();
 
+  /* декодируем крупные картинки заранее (за 1.5 экрана), чтобы их первое появление не давало рывка */
+  if('IntersectionObserver' in window){
+    var pio=new IntersectionObserver(function(entries){ entries.forEach(function(en){ if(!en.isIntersecting) return; var im=en.target; pio.unobserve(im); if(im.decode){ im.decode().catch(function(){}); } }); },{rootMargin:'150% 0px'});
+    document.querySelectorAll('img[src]').forEach(function(im){ if(!im.closest('.hero')) pio.observe(im); });
+  }
   if(!buildSeq){ document.querySelectorAll('.scene [data-src]').forEach(function(im){ im.src=im.getAttribute('data-src'); }); }
   /* ===== editorial scroll scene: stills, typography and depth ===== */
   var loadEl = document.getElementById('load'); loadEl.style.display = 'none';
