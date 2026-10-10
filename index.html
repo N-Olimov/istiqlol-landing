@@ -95,7 +95,9 @@ p{margin:0}
 .hero{position:relative;height:100vh;height:100svh;min-height:600px;background:var(--navy-3);color:var(--cream);overflow:hidden}
 .hero .bg{position:absolute;inset:0;overflow:hidden;will-change:transform}
 .hero .vid{opacity:0;transition:opacity 1.4s ease;object-position:60% center}
-.hero .vid.on{opacity:1}
+.hero .vid.on{opacity:1;animation:heroDrift 22s ease-in-out infinite alternate}
+@keyframes heroDrift{from{transform:scale(1.04) translate3d(0,0,0)}to{transform:scale(1.13) translate3d(-1.6%,-1.2%,0)}}
+@media(prefers-reduced-motion:reduce){.hero .vid.on{animation:none}}
 @media(max-width:860px){.hero .poster{object-position:62% center}}
 .hero .poster{will-change:transform;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;transform:scale(1.04)}
 .hero .bg::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(8,9,26,.76) 0%,rgba(8,9,26,.34) 43%,rgba(8,9,26,.04) 76%),linear-gradient(180deg,rgba(8,9,26,.34),transparent 38%,rgba(8,9,26,.86))}
@@ -931,6 +933,9 @@ p{margin:0}
       v.addEventListener('error',function(){ if(!tried){ tried=true; play(src.replace(/\.mp4$/,'.webm')); } });   // браузер без H.264 → WebM
       play(src); }
     v.addEventListener('playing',function(){ v.classList.add('on'); },{once:true});
+    // если автозапуск заблокирован — пробуем ещё раз при первом взаимодействии
+    var kick=function(){ if(v.paused && v.src){ var p=v.play(); if(p&&p.catch) p.catch(function(){}); } };
+    ['touchstart','scroll','pointerdown','keydown'].forEach(function(ev){ window.addEventListener(ev,kick,{passive:true,once:true}); });
     if(document.readyState==='complete') setTimeout(start,2500); else window.addEventListener('load',function(){ setTimeout(start,2500); });
   })();
 
