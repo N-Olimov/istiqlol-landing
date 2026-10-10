@@ -144,6 +144,9 @@ p{margin:0}
 .scene.webgl-ready .arch3d{opacity:1}
 .scene .buildSeq{position:absolute;inset:0;width:100%;height:100%;z-index:1;display:block;opacity:0;transition:opacity .6s ease}
 .scene.seq-ready .buildSeq{opacity:1}
+.scene .buildVid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 50%;z-index:1;opacity:0;transition:opacity .6s ease;pointer-events:none;background:var(--navy-3)}
+.scene.seq-ready .buildVid{opacity:1}
+.scene.seq-video .buildSeq{display:none}
 .scene.seq-ready .sceneFlash{display:none}
 .scene.seq-ready::after{display:none}
 .scene .scene-ui{position:absolute;z-index:4;left:var(--gut);top:clamp(92px,14vh,140px);display:flex;align-items:center;gap:11px;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:rgba(244,239,228,.62)}
@@ -444,7 +447,7 @@ p{margin:0}
 <!-- SCROLL SCENE -->
 <section class="scene" id="scene" aria-label="Интерактивная 3D-архитектура раскрывается по мере прокрутки">
   <img decoding="async" class="sceneBg" data-src="img/royal-bg-fixed-v1.png" alt="Вечерняя панорама Душанбе и гор">
-  <canvas class="buildSeq" id="buildSeq" data-frames="80" data-dir="img/build/" data-frames-m="80" data-dir-m="img/build-m/" aria-hidden="true"></canvas>
+  <canvas class="buildSeq" id="buildSeq" data-frames="80" data-dir="img/build/" data-frames-m="80" data-dir-m="img/build-m/" data-video-m="img/build-m.mp4" aria-hidden="true"></canvas>
   <img decoding="async" class="sceneLayer" data-layer="foundation" data-src="img/royal-cut-structure-v1.png" alt="Строительство комплекса на набережной">
   <img decoding="async" class="sceneLayer" data-layer="midrise" data-src="img/royal-cut-structure-v1.png" alt="Каркас комплекса поднимается этаж за этажом">
   <img decoding="async" class="sceneLayer" data-layer="structure" data-src="img/royal-cut-facade-v2.png" alt="На каркасе появляется фасад">
@@ -939,7 +942,11 @@ p{margin:0}
     var N=+cv.getAttribute('data-frames')||0; if(!N) return null;
     var mob=window.matchMedia('(max-width:760px)').matches&&+cv.getAttribute('data-frames-m');
     if(mob) N=+cv.getAttribute('data-frames-m');
-    var dir=cv.getAttribute(mob?'data-dir-m':'data-dir'), ctx=cv.getContext('2d',{alpha:false}), host=document.getElementById('scene');
+    var host=document.getElementById('scene'), impl=null;
+
+    /* --- вариант А: кадры на canvas (десктоп; запасной для телефона) --- */
+    function framesImpl(){
+      var dir=cv.getAttribute(mob?'data-dir-m':'data-dir'), ctx=cv.getContext('2d',{alpha:false});
     var blobs=new Array(N), bmps=new Array(N), pending={}, cur=-1, want=0, AHEAD=mob?14:16, BEHIND=mob?8:10, KEEP=mob?12:8, lastW=0, lastH=0;
     var hasBmp=typeof createImageBitmap==='function', ext='webp';
     function src(i){ return dir+'f'+String(i+1).padStart(3,'0')+'.'+ext; }
@@ -972,7 +979,38 @@ p{margin:0}
     window.addEventListener('resize',function(){ size(false); },{passive:true});
     window.addEventListener('orientationchange',function(){ setTimeout(function(){ size(true); },350); });
     cv.setAttribute('data-ok','1');
-    return { set:function(t){ draw(Math.round(Math.max(0,Math.min(1,t))*(N-1))); } };
+      return { set:function(t){ draw(Math.round(Math.max(0,Math.min(1,t))*(N-1))); } };
+    }
+
+    /* --- вариант Б: видео с короткими GOP, перемотка по скроллу (телефоны: аппаратный декодер H.264) --- */
+    var vsrc=cv.getAttribute('data-video-m'), probe=document.createElement('video');
+    var useVideo=mob && vsrc && !!probe.canPlayType && probe.canPlayType('video/mp4')!=='';
+    function videoImpl(){
+      var v=document.createElement('video'); v.className='buildVid'; v.muted=true; v.defaultMuted=true; v.playsInline=true;
+      v.setAttribute('muted',''); v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.preload='auto'; v.setAttribute('aria-hidden','true');
+      cv.parentNode.insertBefore(v,cv); host.classList.add('seq-video');
+      var dur=0, ready=false, seeking=false, pendingT=null, step=1/15, failed=false, stuck=null;
+      function fail(){ if(failed) return; failed=true; host.classList.remove('seq-video'); try{ v.remove(); }catch(e){} impl=framesImpl(); }
+      function seekTo(t){ if(!ready||seeking){ pendingT=t; return; } if(Math.abs(v.currentTime-t)<step*.5) return; seeking=true; pendingT=null; v.currentTime=t;
+        clearTimeout(stuck); stuck=setTimeout(function(){ seeking=false; if(pendingT!=null){ var q=pendingT; pendingT=null; seekTo(q); } },250); }
+      v.addEventListener('seeked',function(){ clearTimeout(stuck); seeking=false; if(pendingT!=null){ var q=pendingT; pendingT=null; seekTo(q); } });
+      v.addEventListener('error',fail);
+      var armed=setTimeout(function(){ if(!ready) fail(); },12000);
+      function go(){
+        v.addEventListener('loadedmetadata',function(){ dur=v.duration||0;
+          var done=function(){ clearTimeout(armed); ready=true; host.classList.add('seq-ready'); if(pendingT!=null){ var q=pendingT; pendingT=null; seekTo(q); } else { v.currentTime=0; } };
+          var p=v.play(); if(p&&p.then) p.then(function(){ v.pause(); done(); },done); else { v.pause(); done(); }
+        },{once:true});
+      }
+      function start(){
+        fetch(vsrc).then(function(r){ if(!r.ok) throw 0; return r.blob(); }).then(function(bl){ go(); v.src=URL.createObjectURL(bl); v.load(); }).catch(function(){ go(); v.src=vsrc; v.load(); });
+      }
+      if(document.readyState==='complete') start(); else window.addEventListener('load',start);
+      return { set:function(t){ if(failed){ impl.set(t); return; } seekTo(Math.max(0,Math.min(1,t))*Math.max(0,dur-step)); } };
+    }
+
+    impl = useVideo ? videoImpl() : framesImpl();
+    return { set:function(t){ impl.set(t); } };
   })();
 
   if(!buildSeq){ document.querySelectorAll('.scene [data-src]').forEach(function(im){ im.src=im.getAttribute('data-src'); }); }
